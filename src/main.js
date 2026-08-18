@@ -4,6 +4,7 @@ import { pitchMirrorMode } from './modes/pitch-mirror.js';
 import { referencePianoMode } from './modes/reference-piano.js';
 import { singBackMode } from './modes/sing-back.js';
 import { melodyFollowMode } from './modes/melody-follow.js';
+import { songTranscribeMode } from './modes/song-transcribe.js';
 
 const app = document.getElementById('app');
 
@@ -22,4 +23,10 @@ const navHost = document.createElement('div');
 
 app.append(header, navHost);
 
-createModeNav(navHost, [pitchMirrorMode, referencePianoMode, singBackMode, melodyFollowMode]);
+createModeNav(navHost, [
+  pitchMirrorMode,
+  referencePianoMode,
+  singBackMode,
+  melodyFollowMode,
+  songTranscribeMode,
+]);
