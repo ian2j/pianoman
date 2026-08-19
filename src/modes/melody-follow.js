@@ -4,11 +4,31 @@ import { VoicePitchTracker } from '../audio/pitch-detector.js';
 import { closeAudioContext } from '../audio/util.js';
 import { MELODIES } from '../music/melodies.js';
 import { deleteCustomMelody, loadCustomMelodies } from '../music/melody-store.js';
-import { noteNameToMidi } from '../music/notes.js';
+import { noteNameToMidi, transposeNoteName } from '../music/notes.js';
 import { createKeyboard } from '../ui/keyboard.js';
 
-const START_NOTE = 'C2';
-const END_NOTE = 'C6';
+const MIN_MIDI = 21; // A0
+const MAX_MIDI = 108; // C8
+const RANGE_PADDING_SEMITONES = 2;
+const MAX_OCTAVE_SHIFT = 4;
+
+function transposeMelody(melody, octaveShift) {
+  if (octaveShift === 0) {
+    return melody;
+  }
+  const semitones = octaveShift * 12;
+  return {
+    ...melody,
+    notes: melody.notes.map((n) => ({ ...n, note: transposeNoteName(n.note, semitones) })),
+  };
+}
+
+function formatOctaveLabel(octaveShift) {
+  if (octaveShift === 0) {
+    return 'Octave: 0';
+  }
+  return `Octave: ${octaveShift > 0 ? '+' : ''}${octaveShift}`;
+}
 
 // Extends test_visualize_piano.py's scripted melody demo into a scored
 // follow-along game: the app plays/highlights each note in turn, and scores
@@ -48,6 +68,22 @@ export const melodyFollowMode = {
 
     controls.append(melodySelect, deleteBtn, startBtn);
 
+    const octaveControls = document.createElement('div');
+    octaveControls.classList.add('octave-controls');
+
+    const octaveDownBtn = document.createElement('button');
+    octaveDownBtn.type = 'button';
+    octaveDownBtn.textContent = '▼ Octave';
+
+    const octaveLabel = document.createElement('span');
+    octaveLabel.classList.add('octave-label');
+
+    const octaveUpBtn = document.createElement('button');
+    octaveUpBtn.type = 'button';
+    octaveUpBtn.textContent = '▲ Octave';
+
+    octaveControls.append(octaveDownBtn, octaveLabel, octaveUpBtn);
+
     const progressDisplay = document.createElement('div');
     progressDisplay.classList.add('melody-progress');
 
@@ -56,26 +92,28 @@ export const melodyFollowMode = {
 
     const keyboardHost = document.createElement('div');
     keyboardHost.classList.add('keyboard-host');
-    const keyboard = createKeyboard(keyboardHost, {
-      startMidi: noteNameToMidi(START_NOTE),
-      endMidi: noteNameToMidi(END_NOTE),
-    });
+    let keyboard = null;
 
-    container.append(intro, controls, progressDisplay, resultDisplay, keyboardHost);
+    container.append(intro, controls, octaveControls, progressDisplay, resultDisplay, keyboardHost);
 
     const audioContext = new AudioContext();
     const synth = new Synth(audioContext);
     const tracker = new VoicePitchTracker();
 
     let availableMelodies = [];
+    let octaveShift = 0;
     let running = false;
     let activeTimers = [];
     let sungCountsPerNote = [];
     let results = [];
     let currentNoteIndex = -1;
 
+    function currentMelody() {
+      return availableMelodies.find((m) => m.id === melodySelect.value) ?? null;
+    }
+
     function updateDeleteButtonVisibility() {
-      const melody = availableMelodies.find((m) => m.id === melodySelect.value);
+      const melody = currentMelody();
       deleteBtn.hidden = !melody || melody.source !== 'custom';
     }
 
@@ -91,18 +129,68 @@ export const melodyFollowMode = {
       return combined;
     }
 
+    function rebuildKeyboard(melody) {
+      keyboard?.destroy();
+      const midis = melody.notes.map((n) => noteNameToMidi(n.note));
+      const startMidi = Math.max(MIN_MIDI, Math.min(...midis) - RANGE_PADDING_SEMITONES);
+      const endMidi = Math.min(MAX_MIDI, Math.max(...midis) + RANGE_PADDING_SEMITONES);
+      keyboard = createKeyboard(keyboardHost, { startMidi, endMidi });
+    }
+
+    function updateOctaveButtons() {
+      octaveDownBtn.disabled = running || octaveShift <= -MAX_OCTAVE_SHIFT;
+      octaveUpBtn.disabled = running || octaveShift >= MAX_OCTAVE_SHIFT;
+    }
+
+    // Refreshes the keyboard range and the (unstarted) progress chips to
+    // reflect the currently selected melody and octave shift, so you can
+    // see and adjust the register before hitting Start.
+    function syncPreview() {
+      octaveLabel.textContent = formatOctaveLabel(octaveShift);
+      updateOctaveButtons();
+      const melody = currentMelody();
+      if (!melody) {
+        return;
+      }
+      const shifted = transposeMelody(melody, octaveShift);
+      rebuildKeyboard(shifted);
+      results = new Array(shifted.notes.length).fill(null);
+      renderProgress(shifted, -1);
+    }
+
     availableMelodies = refreshMelodyOptions();
     updateDeleteButtonVisibility();
+    syncPreview();
 
-    melodySelect.addEventListener('change', updateDeleteButtonVisibility);
+    melodySelect.addEventListener('change', () => {
+      octaveShift = 0;
+      updateDeleteButtonVisibility();
+      syncPreview();
+    });
     deleteBtn.addEventListener('click', () => {
-      const melody = availableMelodies.find((m) => m.id === melodySelect.value);
+      const melody = currentMelody();
       if (!melody || melody.source !== 'custom') {
         return;
       }
       deleteCustomMelody(melody.id);
       availableMelodies = refreshMelodyOptions();
+      octaveShift = 0;
       updateDeleteButtonVisibility();
+      syncPreview();
+    });
+    octaveDownBtn.addEventListener('click', () => {
+      if (running || octaveShift <= -MAX_OCTAVE_SHIFT) {
+        return;
+      }
+      octaveShift -= 1;
+      syncPreview();
+    });
+    octaveUpBtn.addEventListener('click', () => {
+      if (running || octaveShift >= MAX_OCTAVE_SHIFT) {
+        return;
+      }
+      octaveShift += 1;
+      syncPreview();
     });
 
     const unsubscribe = onFrame((frame, sampleRate) => {
@@ -147,6 +235,7 @@ export const melodyFollowMode = {
       resultDisplay.textContent = `Score: ${hits} / ${melody.notes.length} notes matched`;
       startBtn.disabled = false;
       startBtn.textContent = 'Start';
+      updateOctaveButtons();
     }
 
     function run(melody) {
@@ -157,6 +246,7 @@ export const melodyFollowMode = {
       resultDisplay.textContent = '';
       startBtn.disabled = true;
       startBtn.textContent = 'Running…';
+      updateOctaveButtons();
       renderProgress(melody, -1);
 
       melody.notes.forEach((noteEvent, i) => {
@@ -197,12 +287,14 @@ export const melodyFollowMode = {
       if (running) {
         return;
       }
-      const melody = availableMelodies.find((m) => m.id === melodySelect.value) ?? availableMelodies[0];
+      const melody = currentMelody();
       if (!melody) {
         return;
       }
       stopTimers();
-      run(melody);
+      const shifted = transposeMelody(melody, octaveShift);
+      rebuildKeyboard(shifted);
+      run(shifted);
     });
 
     return {
@@ -211,7 +303,7 @@ export const melodyFollowMode = {
         stopTimers();
         unsubscribe();
         closeAudioContext(audioContext);
-        keyboard.destroy();
+        keyboard?.destroy();
       },
     };
   },

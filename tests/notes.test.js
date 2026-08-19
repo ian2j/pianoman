@@ -6,6 +6,7 @@ import {
   midiToFrequency,
   midiToNoteName,
   noteNameToMidi,
+  transposeNoteName,
 } from '../src/music/notes.js';
 
 describe('note/midi/frequency conversions', () => {
@@ -26,6 +27,13 @@ describe('note/midi/frequency conversions', () => {
     expect(isBlackKey(noteNameToMidi('C#4'))).toBe(true);
     expect(isBlackKey(noteNameToMidi('E4'))).toBe(false);
     expect(isBlackKey(noteNameToMidi('A#4'))).toBe(true);
+  });
+
+  it('transposes by whole octaves and by semitones', () => {
+    expect(transposeNoteName('C4', -12)).toBe('C3');
+    expect(transposeNoteName('C4', -24)).toBe('C2');
+    expect(transposeNoteName('C4', 12)).toBe('C5');
+    expect(transposeNoteName('A4', -1)).toBe('G#4');
   });
 
   it('finds the nearest note and cents offset for a frequency', () => {

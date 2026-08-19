@@ -42,6 +42,10 @@ export function noteNameToFrequency(noteName) {
   return midiToFrequency(noteNameToMidi(noteName));
 }
 
+export function transposeNoteName(noteName, semitones) {
+  return midiToNoteName(noteNameToMidi(noteName) + semitones);
+}
+
 // Given a detected frequency, find the nearest note and how far off (in
 // cents) the frequency is from that note's ideal pitch.
 export function frequencyToNote(freq) {
